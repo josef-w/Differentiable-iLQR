@@ -15,7 +15,6 @@ import os
 import sys
 import os
 
-# 获取项目根目录路径
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # sys.path.append(project_root)
 sys.path.append('C:\project\iLQR\mpc.pytorch.mine\mpc')
@@ -192,8 +191,8 @@ class PendulumDx(nn.Module):
                                   3 * dt / (l ** 2 * m)
                               ]
                               ])
-        # 定义矩阵 2 (3维张量: 3x4x3)
-        # 定义矩阵 2的三个部分 (分别是3x4的矩阵)
+        # Define matrix 2 (3-dimensional tensor: 3x4x3)
+        # Define the three parts of matrix 2 (each is a 3x4 matrix)
         matrix_2_part_1 = self.batch_align([
     [
         0.00375 * sin_th**2 * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (l * (cos_th**2 + sin_th**2)),
@@ -255,11 +254,11 @@ class PendulumDx(nn.Module):
     ]
 ])
 
-        # 合并三个部分为 batch*3x4x3 的张量   5*3*4
+        # Combine the three parts into a 3x4x3 tensor
         D_grad_params = torch.stack([matrix_2_part_1, matrix_2_part_2, matrix_2_part_3], dim=3)
         # print(D_grad_params.shape)
 
-        # 定义矩阵 3 (3维张量: 3x4x3)
+        # Define matrix 3 (3-dimensional tensor: 3x4x3)
         matrix_3_part_1 = self.batch_align([
     [-2 * cos_th * sin_th * torch.sin(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2)**2 - sin_th**2 * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2)**2,
      sin_th * (cos_th / (cos_th**2 + sin_th**2) + 0.00375 * g / l) * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2) - (-2 * cos_th**2 / (cos_th**2 + sin_th**2)**2 + 1 / (cos_th**2 + sin_th**2)) * torch.sin(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)),
@@ -271,7 +270,7 @@ class PendulumDx(nn.Module):
      0.0075 * sin_th * torch.sin(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (l**2 * m * (cos_th**2 + sin_th**2))],
     [0, 0, 0, 0]
 ])
-        # 定义matrix_part_2
+        # Define matrix_part_2
         matrix_3_part_2 = self.batch_align([
     [-2 * sin_th**2 * torch.sin(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2)**2 + sin_th * (cos_th / (cos_th**2 + sin_th**2) + 0.00375 * g / l) * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2) + torch.sin(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2),
      2 * cos_th * sin_th * torch.sin(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2)**2 - (cos_th / (cos_th**2 + sin_th**2) + 0.00375 * g / l)**2 * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)),
@@ -283,7 +282,7 @@ class PendulumDx(nn.Module):
      -0.0075 * (cos_th / (cos_th**2 + sin_th**2) + 0.00375 * g / l) * torch.sin(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (l**2 * m)],
     [0, 0, 0, 0]
 ])
-        # 定义matrix_part_3
+        # Define matrix_part_3
         matrix_3_part_3 = self.batch_align([
     [0.05 * sin_th * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (cos_th**2 + sin_th**2),
      -0.05 * (cos_th / (cos_th**2 + sin_th**2) + 0.00375 * g / l) * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)),
@@ -296,10 +295,10 @@ class PendulumDx(nn.Module):
     [0, 0, 0, 0]
 ])
 
-        # 合并三个部分为 3x4x3 的张量
+        # Combine the three parts into a 3x4x3 tensor
         D_grad_x = torch.stack([matrix_3_part_1, matrix_3_part_2, matrix_3_part_3], dim=3)
         # print(D_grad_x.shape)
-        # 定义矩阵 4
+        # Define matrix 4
         D_grad_u = self.batch_align([
     [
         0.0075 * sin_th * torch.cos(0.05 * dth + 0.00375 * g * sin_th / l + torch.atan2(sin_th, cos_th) + 0.0075 * u / (l**2 * m)) / (l**2 * m * (cos_th**2 + sin_th**2)),
