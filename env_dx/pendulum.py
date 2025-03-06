@@ -382,21 +382,21 @@ class PendulumDx(nn.Module):
         return D, D_grad_params, D_grad_x, D_grad_u, x_grad_theta, x_grad_xtm1, x_grad_utm1
     def grad_input(self,X, U,K=None):
         """
-        计算梯度输入，支持 batch 处理。
+        Calculate gradient inputs, supporting batch processing.
 
-        参数:
-        X: (20, 5, 3) - 时间步, batch 大小, 状态维度
-        U: (20, 5, 1) - 时间步, batch 大小, 控制维度
-        返回:
-        grad_D: (19, 5, 3, 4, 3) - 时间步, batch 大小, 状态维度, 控制维度+状态维度, 参数维度
-        grad_d: (19, 5, 3, 3) - 时间步, batch 大小, 状态维度, 状态维度, 参数维度
+        Parameters:
+        X: (20, 5, 3) - time steps, batch size, state dimension
+        U: (20, 5, 1) - time steps, batch size, control dimension
+        Returns:
+        grad_D: (19, 5, 3, 4, 3) - time steps, batch size, state dimension, control dimension + state dimension, parameter dimension
+        grad_d: (19, 5, 3, 3) - time steps, batch size, state dimension, state dimension, parameter dimension
         """
         T, batch_size, n_state = X.shape
         _, _, n_ctrl = U.shape
         dx, du=n_state,n_ctrl
         dtotal=dx+du
         dtheta=3
-        # 初始化输出列表 grad_D 和 grad_d
+        # Initialize output lists grad_D and grad_d
         grad_D = []
         grad_d = []
 
@@ -404,14 +404,14 @@ class PendulumDx(nn.Module):
         D, D_grad_params, D_grad_x, D_grad_u, x_grad_theta, x_grad_xtm1, x_grad_utm1 = self.get_matrices(_X, _U)
         D, D_grad_params, D_grad_x, D_grad_u = D.reshape(T, batch_size, dx, dtotal), D_grad_params.reshape(T, batch_size,dx, dtotal,dtheta), D_grad_x.reshape(T, batch_size, dx, dtotal, dx), D_grad_u.reshape(T, batch_size, dx, dtotal, du)
         x_grad_theta, x_grad_xtm1, x_grad_utm1 = x_grad_theta.reshape(T, batch_size, dx, dtheta), x_grad_xtm1.reshape(T,batch_size,dx,dx), x_grad_utm1.reshape(T, batch_size, dx, du)
-        # 初始 gradxt 设为全零张量
+        # Initialize gradxt as a zero tensor
         gradxt = torch.zeros(batch_size, n_state, n_state)
         X_U=torch.cat((X,U),dim=-1)
         d_grad_X=torch.einsum('tbnmk,tbm->tbnk',-D_grad_x,X_U)
         d_grad_U = torch.einsum('tbnmk,tbm->tbnk', -D_grad_u, X_U)
 
         for t in range(T):
-            # 设置示例张量
+            # Set example tensor
             if K==None:
                 ut_grad_xt = torch.zeros(batch_size, n_ctrl, n_state) ####K_t
                 utm1_grad_xtm1 = torch.zeros(batch_size, n_ctrl, n_state) ####K_tm1
@@ -420,12 +420,12 @@ class PendulumDx(nn.Module):
                 if t>0:
                     utm1_grad_xtm1=K[t-1]
 
-            # 计算 gradxt
+            # Calculate gradxt
             if t>0:
                 gradxtm1=gradxt
                 gradxt = x_grad_theta[t] + torch.matmul(x_grad_xtm1[t] + torch.matmul(x_grad_utm1[t], utm1_grad_xtm1), gradxt)
 
-            # 计算 gradDt
+            # Calculate gradDt
             if t<(T-1):
                 gradDt = D_grad_params[t] + torch.matmul(D_grad_x[t] + torch.matmul(D_grad_u[t], ut_grad_xt.unsqueeze(1)), gradxt.unsqueeze(1))
                 grad_D.append(gradDt)
@@ -436,7 +436,7 @@ class PendulumDx(nn.Module):
                 grad_dtm1=gradxt-torch.einsum('bnmk,bm->bnk', grad_D[t-1],xtm1_utm1)-torch.matmul(D[t-1],xtm1_utm1_params)
                 grad_d.append(grad_dtm1)
 
-        # 在循环结束后，将列表转换为 tensor
+        # After the loop, convert the list to a tensor
         grad_D = torch.stack(grad_D, dim=0)
         grad_d = torch.stack(grad_d, dim=0)
 
@@ -531,7 +531,7 @@ if __name__ == '__main__':
 
     env = gym.make('Pendulum-v1')
     obs = env.reset()
-    # env.state = np.array([np.pi, 0.])  # 设置自定义状态
+    # env.state = np.array([np.pi, 0.])  # set custom state
     dx = PendulumDx()
     n_batch, T = 1, 20
     xinit = torch.zeros(n_batch, dx.n_state)
@@ -543,7 +543,7 @@ if __name__ == '__main__':
     xinit[:, 1] = torch.tensor(obs[1], dtype=torch.float32)  # sin(theta)
     xinit[:, 2] = torch.tensor(obs[2], dtype=torch.float32)
 
-    xinit = torch.tensor([[np.cos(0.1),np.sin(0.1), 0.0]])  # 初始角度为 0.1 弧度
+    xinit = torch.tensor([[np.cos(0.1),np.sin(0.1), 0.0]])  # initial angle is 0.1 radian
     uinit = torch.tensor([[0.0]])
     D=dx.get_linear_dyn_test(xinit,uinit)
     print(D)
