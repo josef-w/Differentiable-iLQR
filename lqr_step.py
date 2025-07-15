@@ -10,9 +10,8 @@ from collections import namedtuple
 
 import time
 
-import util,mpc_backup
+import util, mpc
 from pnqp import pnqp
-from definitions import QuadCost, LinDx
 
 LqrBackOut = namedtuple('lqrBackOut', 'n_total_qp_iter')
 LqrForOut = namedtuple(
@@ -50,7 +49,7 @@ def LQRStep(n_state,
             TODO
         """
     # @profile
-    def lqr_backward_old(ctx, C, c, F, f):
+    def lqr_backward(ctx, C, c, F, f):
         n_batch = C.size(1)
 
         u = ctx.current_u
@@ -160,104 +159,6 @@ def LQRStep(n_state,
 
         return Ks, ks, n_total_qp_iter
 
-    def lqr_backward(ctx, C, c, F, f):
-        n_batch = C.size(1)
-        T = C.size(0)
-        u = ctx.current_u
-        Ks = []
-        ks = []
-        prev_kt = None
-        n_total_qp_iter = 0
-        Vtp1 = vtp1 = None
-
-        for t in range(T - 1, -1, -1):
-            if t == T - 1:
-                Qt = C[t]
-                qt = c[t]
-            else:
-                Ft = F[t]
-                Ft_T = Ft.transpose(1, 2)
-                Qt = C[t] + Ft_T.bmm(Vtp1).bmm(Ft)
-                if f is None or f.nelement() == 0:
-                    qt = c[t] + Ft_T.bmm(vtp1.unsqueeze(2)).squeeze(2)
-                else:
-                    ft = f[t]
-                    qt = c[t] + Ft_T.bmm(Vtp1).bmm(ft.unsqueeze(2)).squeeze(2) + \
-                         Ft_T.bmm(vtp1.unsqueeze(2)).squeeze(2)
-
-            Qt_xx = Qt[:, :n_state, :n_state]
-            Qt_xu = Qt[:, :n_state, n_state:]
-            Qt_ux = Qt[:, n_state:, :n_state]
-            Qt_uu = Qt[:, n_state:, n_state:]
-            qt_x = qt[:, :n_state]
-            qt_u = qt[:, n_state:]
-
-            if u_lower is None:  # 无控制约束分支
-                if n_ctrl == 1 and u_zero_I is None:
-                    Kt = -(1. / Qt_uu) * Qt_ux
-                    kt = -(1. / Qt_uu.squeeze(2)) * qt_u
-                else:
-                    if u_zero_I is None:
-                        # 使用Cholesky加速（仅无约束时）
-                        try:
-                            L = torch.linalg.cholesky(Qt_uu + 1e-6 * torch.eye(n_ctrl).type_as(Qt_uu))
-                            Kt = -torch.cholesky_solve(Qt_ux, L)
-                            kt = -torch.cholesky_solve(qt_u.unsqueeze(2), L).squeeze(2)
-                        except RuntimeError:
-                            Qt_uu_inv = torch.pinverse(Qt_uu)
-                            Kt = -Qt_uu_inv.bmm(Qt_ux)
-                            kt = util.bmv(-Qt_uu_inv, qt_u)
-                    else:
-                        # 处理u_zero_I约束（原始逻辑不变）
-                        I = u_zero_I[t].float()
-                        notI = 1 - I
-                        qt_u_ = qt_u.clone()
-                        qt_u_[I.bool()] = 0
-                        Qt_uu_ = Qt_uu.clone()
-                        Qt_uu_I = 1 - util.bger(notI, notI) if not I.is_cuda else (
-                                    1 - util.bger(notI.float(), notI.float())).type_as(I)
-                        Qt_uu_[Qt_uu_I.bool()] = 0.
-                        Qt_uu_[util.bdiag(I).bool()] += 1e-8
-                        Qt_ux_ = Qt_ux.clone()
-                        Qt_ux_[I.unsqueeze(2).repeat(1, 1, Qt_ux.size(2)).bool()] = 0.
-                        if n_ctrl == 1:
-                            Kt = -(1. / Qt_uu_) * Qt_ux_
-                            kt = -(1. / Qt_uu.squeeze(2)) * qt_u_
-                        else:
-                            Qt_uu_LU_ = Qt_uu_.lu()
-                            Kt = -Qt_ux_.lu_solve(*Qt_uu_LU_)
-                            kt = -qt_u_.unsqueeze(2).lu_solve(*Qt_uu_LU_).squeeze(2)
-            else:  # 处理控制约束（原始逻辑不变）
-                lb = get_bound('lower', t) - u[t]
-                ub = get_bound('upper', t) - u[t]
-                if delta_u is not None:
-                    lb[lb < -ctx.delta_u] = -delta_u
-                    ub[ub > ctx.delta_u] = delta_u
-                kt, Qt_uu_free_LU, If, n_qp_iter = pnqp(
-                    Qt_uu, qt_u, lb, ub,
-                    x_init=prev_kt, n_iter=20
-                )
-                n_total_qp_iter += 1 + n_qp_iter
-                prev_kt = kt
-                Qt_ux_ = Qt_ux.clone()
-                Qt_ux_[(1 - If).unsqueeze(2).repeat(1, 1, Qt_ux.size(2)).bool()] = 0
-                Kt = -Qt_ux_.lu_solve(*Qt_uu_free_LU) if n_ctrl != 1 else -((1. / Qt_uu_free_LU) * Qt_ux_)
-
-            Kt_T = Kt.transpose(1, 2)
-            Ks.append(Kt)
-            ks.append(kt)
-
-            # 更新Vtp1和vtp1（保持原始公式）
-            Vtp1 = Qt_xx + Qt_xu.bmm(Kt) + Kt_T.bmm(Qt_ux) + Kt_T.bmm(Qt_uu).bmm(Kt)
-            vtp1 = qt_x + Qt_xu.bmm(kt.unsqueeze(2)).squeeze(2) + \
-                   Kt_T.bmm(qt_u.unsqueeze(2)).squeeze(2) + \
-                   Kt_T.bmm(Qt_uu).bmm(kt.unsqueeze(2)).squeeze(2)
-
-        # _Ks, _ks, _n_total_qp_iter=lqr_backward_old(ctx, C, c, F, f)
-        # print(torch.max(torch.stack(Ks)-torch.stack(_Ks)))
-        # print(torch.max(torch.stack(ks)-torch.stack(_ks)))
-        return Ks, ks, n_total_qp_iter
-
 
     # @profile
     def lqr_forward(ctx, x_init, C, c, F, f, Ks, ks):
@@ -314,7 +215,7 @@ def LQRStep(n_state,
 
                 new_xut = torch.cat((new_xt, new_ut), dim=1)
                 if t < T-1:
-                    if isinstance(true_dynamics, LinDx):
+                    if isinstance(true_dynamics, mpc.LinDx):
                         F, f = true_dynamics.F, true_dynamics.f
                         new_xtp1 = util.bmv(F[t], new_xut)
                         if f is not None and f.nelement() > 0:
@@ -326,7 +227,7 @@ def LQRStep(n_state,
                     new_x.append(new_xtp1)
                     dx.append(new_xtp1 - x[t+1])
 
-                if isinstance(true_cost, QuadCost):
+                if isinstance(true_cost, mpc.QuadCost):
                     C, c = true_cost.C, true_cost.c
                     obj = 0.5*util.bquad(new_xut, C[t]) + util.bdot(new_xut, c[t])
                 else:
@@ -424,7 +325,7 @@ def LQRStep(n_state,
                 I = (torch.abs(new_u - u_lower) <= 1e-8) | \
                     (torch.abs(new_u - u_upper) <= 1e-8)
             dx_init = Variable(torch.zeros_like(x_init))
-            _mpc = mpc_backup.MPC(
+            _mpc = mpc.MPC(
                 n_state, n_ctrl, T,
                 u_zero_I=I,
                 u_init=None,
@@ -436,7 +337,7 @@ def LQRStep(n_state,
                 exit_unconverged=False, # It's really bad if this doesn't converge.
                 eps=back_eps,
             )
-            dx, du, _ = _mpc(dx_init, QuadCost(C, -r), LinDx(F, None))####Obtain KKT, and use the big matrix to caculate gradient (pretend to calculate traj).
+            dx, du, _ = _mpc(dx_init, mpc.QuadCost(C, -r), mpc.LinDx(F, None))
 
             dx, du = dx.data, du.data
             dxu = torch.cat((dx, du), 2)

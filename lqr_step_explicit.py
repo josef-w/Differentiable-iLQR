@@ -696,7 +696,7 @@ def LQRStep(n_state,
             dx_init_new = Variable(torch.zeros_like(x_init_new))
 
             # dx_init, dC, dc, dF, df=KKT_gradient(r,C, c, F, f, new_x, new_u, dx_init, I)
-            if T*batch_size>1500:
+            if T*batch_size>=1000:
                 _,dtau_dC,dtau_dc,dtau_dF,dtau_df=KKT_gradient_cuda(r_new,C_new, c_new, F_new, f_new, new_x_new, new_u_new, dx_init_new, I_new)
             else:
                 _, dtau_dC, dtau_dc, dtau_dF, dtau_df = KKT_gradient(r_new, C_new, c_new, F_new, f_new, new_x_new,new_u_new, dx_init_new, I_new)
@@ -704,11 +704,12 @@ def LQRStep(n_state,
             matrices=[dtau_dC,dtau_dc,dtau_dF,dtau_df,grad_F, grad_f, F_grad_x, F_grad_u, F, f_grad_X, f_grad_U]
             dC_fix,dc_fix,dtheta=fix_point_equ(dl_dx, dl_du,matrices,theta_shape)
             backward_time = time.time() - start
-            print(backward_time)
+            # print(backward_time)
+            # print(dtheta)
             #print(dC,dc,dF,df)
             # return dx_init, dC, dc, dF, df, None,None
             # print((dC-dC_fix).sum())
-            return None, dC_fix, dc_fix, None, None, dtheta, None
+            return None, dC_fix, dc_fix, None,None, dtheta, None
             # if if_converge==torch.tensor(1.):
             #     return None, None,None,None,None,dtheta,None
             # else:
